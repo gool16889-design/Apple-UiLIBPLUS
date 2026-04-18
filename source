@@ -43,10 +43,6 @@ function lib:init(ti, dosplash, visiblekey, deleteprevious)
         scrgui.Parent = cg
     end
         
-    
-    
-    
-
     if dosplash then
         local splash = Instance.new("Frame")
         splash.Name = "splash"
@@ -113,7 +109,7 @@ function lib:init(ti, dosplash, visiblekey, deleteprevious)
     uc.CornerRadius = UDim.new(0, 18)
     uc.Parent = main
 
-    local UserInputService = game:GetService("UserInputService") --- skidded ik
+    local UserInputService = game:GetService("UserInputService")
     local dragging
     local dragInput
     local dragStart
@@ -150,39 +146,59 @@ function lib:init(ti, dosplash, visiblekey, deleteprevious)
         end
     end)
 
-    -- [[ НОВОЕ: 3D VIEWPORT FRAME (СЛЕВА) ]] --
+    -- [[ ИСПРАВЛЕННОЕ 3D VIEWPORT FRAME ]] --
     local viewportFrame = Instance.new("ViewportFrame")
     viewportFrame.Name = "PlayerViewport"
     viewportFrame.Parent = main
-    viewportFrame.BackgroundColor3 = Color3.fromRGB(35, 35, 40) -- Тёмный фон для контраста
+    viewportFrame.BackgroundColor3 = Color3.fromRGB(35, 35, 40)
     viewportFrame.BackgroundTransparency = 0
-    viewportFrame.Position = UDim2.new(0.025, 0, 0.181, 0) -- Там где раньше начинался sidebar
-    viewportFrame.Size = UDim2.new(0, 225, 0, 250) -- Ширина как у search, высота подогнана
+    viewportFrame.Position = UDim2.new(0.025, 0, 0.181, 0)
+    viewportFrame.Size = UDim2.new(0, 225, 0, 250)
 
     local vpCorner = Instance.new("UICorner")
     vpCorner.CornerRadius = UDim.new(0, 9)
     vpCorner.Parent = viewportFrame
 
-    -- Настройка мира внутри ViewportFrame
+    -- Создаем WorldModel для изоляции 3D контента
     local worldModel = Instance.new("WorldModel")
+    worldModel.Name = "ViewportWorld"
     worldModel.Parent = viewportFrame
-
-    -- Освещение
-    local lighting = Instance.new("Lighting")
-    lighting.Parent = worldModel
-    lighting.Brightness = 2
-    lighting.ClockTime = 14
-    lighting.FogEnd = 1000
-    lighting.GlobalShadows = true
-    lighting.OutdoorAmbient = Color3.fromRGB(128, 128, 128)
 
     -- Камера для Viewport
     local vpCamera = Instance.new("Camera")
     vpCamera.Parent = viewportFrame
-    vpCamera.CFrame = CFrame.new(Vector3.new(0, 2, 5), Vector3.new(0, 2, 0)) -- Смотрит на центр
+    vpCamera.CFrame = CFrame.new(Vector3.new(0, 2, 5), Vector3.new(0, 2, 0))
     viewportFrame.CurrentCamera = vpCamera
 
-    -- Логика вращения камеры при зажатии мыши на ViewportFrame
+    -- Настройка освещения через существующий Lighting сервис
+    -- Вместо создания нового, клонируем настройки из game.Lighting
+    local function setupLighting()
+        -- Создаем части для освещения внутри WorldModel
+        local ambientLight = Instance.new("AmbientLight")
+        ambientLight.Color = Color3.fromRGB(128, 128, 128)
+        ambientLight.Parent = worldModel
+        
+        local directionalLight = Instance.new("DirectionalLight")
+        directionalLight.Color = Color3.fromRGB(255, 255, 255)
+        directionalLight.Parent = worldModel
+        
+        -- Добавляем дополнительные источники света для лучшего отображения
+        local fillLight1 = Instance.new("PointLight")
+        fillLight1.Color = Color3.fromRGB(200, 200, 255)
+        fillLight1.Range = 20
+        fillLight1.Position = Vector3.new(-3, 3, 3)
+        fillLight1.Parent = worldModel
+        
+        local fillLight2 = Instance.new("PointLight")
+        fillLight2.Color = Color3.fromRGB(255, 200, 200)
+        fillLight2.Range = 20
+        fillLight2.Position = Vector3.new(3, 2, 2)
+        fillLight2.Parent = worldModel
+    end
+    
+    setupLighting()
+
+    -- Логика вращения камеры
     local isDraggingVP = false
     local lastMousePos = Vector2.new()
     local currentAngleX = 0
@@ -212,23 +228,22 @@ function lib:init(ti, dosplash, visiblekey, deleteprevious)
         if isDraggingVP and (input.UserInputType == Enum.UserInputType.MouseMovement) then
             local delta = input.Position - lastMousePos
             currentAngleX = currentAngleX - delta.X * 0.01
-            currentAngleY = math.clamp(currentAngleY - delta.Y * 0.01, -1.2, 1.2) -- Ограничение по Y
+            currentAngleY = math.clamp(currentAngleY - delta.Y * 0.01, -1.2, 1.2)
             updateVPCamera()
             lastMousePos = input.Position
         end
     end)
 
-    -- Функция для загрузки персонажа (Rig) в Viewport
+    -- Функция для загрузки персонажа в Viewport
     function SetViewportCharacter(character)
-        -- Очищаем старую модель, если есть
+        -- Очищаем старую модель
         for _, child in pairs(worldModel:GetChildren()) do
-            if child:IsA("Model") and child.Name ~= "Lighting" then
+            if child:IsA("Model") or (child:IsA("BasePart") and child.Name ~= "Lighting") then
                 child:Destroy()
             end
         end
 
         if character then
-            -- Клонируем, чтобы не удалить оригинал с карты
             local clone = character:Clone()
             clone.Parent = worldModel
             
@@ -236,40 +251,47 @@ function lib:init(ti, dosplash, visiblekey, deleteprevious)
             local primaryPart = clone.PrimaryPart or clone:FindFirstChild("HumanoidRootPart") or clone:FindFirstChild("Torso")
             if primaryPart then
                 local offset = primaryPart.Position
-                clone:MoveTo(-offset) -- Сдвигаем в (0,0,0)
-                targetFocus = Vector3.new(0, 2, 0) -- Фокус камеры
+                clone:MoveTo(-offset)
+                targetFocus = Vector3.new(0, 2, 0)
             else
                 targetFocus = Vector3.new(0, 2, 0)
             end
             
-            -- Настраиваем анимацию (если есть Humanoid)
+            -- Настраиваем анимацию
             local humanoid = clone:FindFirstChildOfClass("Humanoid")
             if humanoid then
-                -- Ставим стандартную анимацию (если загружены)
                 local animController = clone:FindFirstChildOfClass("Animator") or Instance.new("Animator")
                 animController.Parent = humanoid
+                
+                -- Загружаем стандартные анимации если доступны
+                pcall(function()
+                    local animateScript = character:FindFirstChild("Animate")
+                    if animateScript then
+                        local newAnimate = animateScript:Clone()
+                        newAnimate.Parent = clone
+                    end
+                end)
             end
         end
         
-        -- Сбрасываем углы камеры при загрузке нового персонажа
         currentAngleX = 0
         currentAngleY = 0
         updateVPCamera()
     end
 
-    -- Поиск персонажа игрока автоматически при запуске
+    -- Автоматическая загрузка персонажа игрока
     local player = game:GetService("Players").LocalPlayer
-    if player.Character or player.CharacterAdded:Wait() then
+    if player.Character then
         SetViewportCharacter(player.Character)
     end
     player.CharacterAdded:Connect(SetViewportCharacter)
 
-    -- workarea right side setup (СДВИНУТО ВПРАВО, ТАК КАК МЕСТО ЗАНЯЛ VIEWPORT)
+    -- workarea right side setup
     local workarea = Instance.new("Frame")
     workarea.Name = "workarea"
     workarea.Parent = main
     workarea.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-    workarea.Position = UDim2.new(0.364, 0, 0, 0) -- Оставляем как было
+    workarea.Position = UDim2.new(0.364, 0, 0, 0)
     workarea.Size = UDim2.new(0, 458, 0, 584)
 
     local uc_2 = Instance.new("UICorner")
@@ -283,12 +305,12 @@ function lib:init(ti, dosplash, visiblekey, deleteprevious)
     workareacornerhider.BorderSizePixel = 0
     workareacornerhider.Size = UDim2.new(0, 18, 0.99895674, 0)
 
-    -- searchbar (СДВИГАЕМ НЕМНОГО ВНИЗ, ТАК КАК СВЕРХУ ТЕПЕРЬ VIEWPORT)
+    -- searchbar
     local search = Instance.new("Frame")
     search.Name = "search"
     search.Parent = main
     search.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-    search.Position = UDim2.new(0.0256588068, 0, 0.55, 0) -- Смещено вниз
+    search.Position = UDim2.new(0.0256588068, 0, 0.55, 0)
     search.Size = UDim2.new(0, 225, 0, 34)
 
     local uc_8 = Instance.new("UICorner")
@@ -327,7 +349,7 @@ function lib:init(ti, dosplash, visiblekey, deleteprevious)
         searchtextbox:CaptureFocus()
     end)
 
-    -- sidebar (СДВИГАЕМ ЕЩЕ НИЖЕ)
+    -- sidebar
     local sidebar = Instance.new("ScrollingFrame")
     sidebar.Name = "sidebar"
     sidebar.Parent = main
@@ -335,8 +357,8 @@ function lib:init(ti, dosplash, visiblekey, deleteprevious)
     sidebar.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
     sidebar.BackgroundTransparency = 1
     sidebar.BorderSizePixel = 0
-    sidebar.Position = UDim2.new(0.0249653254, 0, 0.63, 0) -- Смещено вниз
-    sidebar.Size = UDim2.new(0, 233, 0, 200) -- Уменьшена высота, чтобы влезло
+    sidebar.Position = UDim2.new(0.0249653254, 0, 0.63, 0)
+    sidebar.Size = UDim2.new(0, 233, 0, 200)
     sidebar.AutomaticCanvasSize = "Y"
     sidebar.CanvasSize = UDim2.new(0, 0, 0, 0)
     sidebar.ScrollBarThickness = 2
@@ -346,7 +368,7 @@ function lib:init(ti, dosplash, visiblekey, deleteprevious)
     ull_2.SortOrder = Enum.SortOrder.LayoutOrder
     ull_2.Padding = UDim.new(0, 5)
 
-    game:GetService("RunService"):BindToRenderStep("search", 1, function() -- i sure do love skidding
+    game:GetService("RunService"):BindToRenderStep("search", 1, function()
         if not searchtextbox:IsFocused() then 
             for b,v in next, sidebar:GetChildren() do
                 if not v:IsA("TextButton") then return end
@@ -364,7 +386,7 @@ function lib:init(ti, dosplash, visiblekey, deleteprevious)
             end
         end
     end)
-    
+
     -- macos style buttons
     local buttons = Instance.new("Frame")
     buttons.Name = "buttons"
@@ -445,7 +467,6 @@ function lib:init(ti, dosplash, visiblekey, deleteprevious)
     title.TextWrapped = true
     title.TextXAlignment = Enum.TextXAlignment.Left
 
-    -- ... (код уведомлений notif и notif2 остается без изменений) ...
     -- notif1
     local notif = Instance.new("Frame")
     notif.Name = "notif"
@@ -540,7 +561,6 @@ function lib:init(ti, dosplash, visiblekey, deleteprevious)
     notiftext.TextWrapped = true
 
     -- notifcation 2 (two button)
-
     local notif2 = Instance.new("Frame")
     notif2.Name = "notif2"
     notif2.Parent = main
@@ -655,7 +675,9 @@ function lib:init(ti, dosplash, visiblekey, deleteprevious)
     else
         title.Text = ""
     end
-       tp(main, UDim2.new(0.5, 0, 0.5, 0), 1)
+    
+    tp(main, UDim2.new(0.5, 0, 0.5, 0), 1)
+    
     window = {}
 
     function window:ToggleVisible()
@@ -673,7 +695,6 @@ function lib:init(ti, dosplash, visiblekey, deleteprevious)
         end
     end
 
-    -- Добавляем публичный метод для смены 3D модели
     function window:SetPreviewModel(model)
         SetViewportCharacter(model)
     end
@@ -778,13 +799,18 @@ function lib:init(ti, dosplash, visiblekey, deleteprevious)
         if notif.Visible == true or notif2.Visible == true then return "Already visible" end
         notiftitle.Text = txt1
         notiftext.Text = txt2
-        notificon = icohn
+        notificon.Image = icohn or "rbxassetid://4871684504"
         notif.Visible = true
         notifbutton1.Text = b1
         if callback then
             con1 = notifbutton1.MouseButton1Click:Connect(function()
                 con1:Disconnect()
                 callback()
+                notif.Visible = false
+            end)
+        else
+            con1 = notifbutton1.MouseButton1Click:Connect(function()
+                con1:Disconnect()
                 notif.Visible = false
             end)
         end
@@ -794,7 +820,7 @@ function lib:init(ti, dosplash, visiblekey, deleteprevious)
         if notif.Visible == true or notif2.Visible == true then return "Already visible" end
         notif2title.Text = txt1
         notif2text.Text = txt2
-        notif2icon = icohn
+        notif2icon.Image = icohn or "rbxassetid://12608260095"
         notif2.Visible = true
         notif2button1.Text = b1
         notif2button2.Text = b2
@@ -821,7 +847,6 @@ function lib:init(ti, dosplash, visiblekey, deleteprevious)
         sidebardivider.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
         sidebardivider.BackgroundTransparency = 1
         sidebardivider.BorderSizePixel = 2
-        sidebardivider.Position = UDim2.new(0, 0, 0.00215982716, 0)
         sidebardivider.Size = UDim2.new(0, 226, 0, 26)
         sidebardivider.Font = Enum.Font.Gotham
         sidebardivider.Text = name
@@ -886,6 +911,7 @@ function lib:init(ti, dosplash, visiblekey, deleteprevious)
             end
             workareamain.Visible = true
         end
+        
         function sec:Divider(name)
             local section = Instance.new("TextLabel")
             section.Name = "section"
@@ -903,6 +929,7 @@ function lib:init(ti, dosplash, visiblekey, deleteprevious)
             section.TextXAlignment = Enum.TextXAlignment.Left
             section.TextYAlignment = Enum.TextYAlignment.Bottom
         end
+        
         function sec:Button(name, callback)
             local button = Instance.new("TextButton")
             button.Name = "button"
